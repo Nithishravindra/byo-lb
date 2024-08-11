@@ -4,11 +4,12 @@ import json
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/__health':
+        if self.path == '/':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            health_status = {'status': 'healthy'}
+            # Use a dictionary with unique keys for each entry.
+            health_status = {'status': 'healthy', 'message': 'hello'}
             self.wfile.write(json.dumps(health_status).encode('utf-8'))
         else:
             self.send_response(404)

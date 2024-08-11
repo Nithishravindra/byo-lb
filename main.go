@@ -3,50 +3,65 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net"
-	"os"
 )
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	buffer := make([]byte, 1024)
-	for {
-		n, err := conn.Read(buffer)
-		if err != nil {
-			if err != io.EOF {
-				fmt.Println("Error reading from connection:", err)
-			}
-			break
-		}
-		fmt.Println("Received:", string(buffer[:n]))
-		_, err = conn.Write(buffer[:n])
-		if err != nil {
-			fmt.Println("Error writing to connection:", err)
-			break
-		}
-	}
-}
+func handleConnection(clientConn net.Conn, backendAddress string) {
+	defer clientConn.Close()
 
-func createTCPServer(address string) {
-	listener, err := net.Listen("tcp", address)
+	// Dial the backend server
+	backendConn, err := net.Dial("tcp", backendAddress)
 	if err != nil {
-		fmt.Println("Error creating TCP server:", err)
-		os.Exit(1)
+		log.Println("Error connecting to backend server:", err)
+		return
 	}
-	defer listener.Close()
-	fmt.Println("TCP server listening on", address)
+	defer backendConn.Close()
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection:", err)
-			continue
-		}
-		go handleConnection(conn)
-	}
+	fmt.Println("Connected to backend server at", backendAddress)
+
+	// Channel to signal when either direction is done
+	done := make(chan struct{})
+
+	// Forward data from client to backend
+	go func() {
+		io.Copy(backendConn, clientConn)
+		done <- struct{}{}
+	}()
+
+	// Forward data from backend to client
+	go func() {
+		io.Copy(clientConn, backendConn)
+		done <- struct{}{}
+	}()
+
+	// Wait for either direction to finish
+	<-done
 }
 
 func main() {
-	address := "localhost:8080"
-	createTCPServer(address)
+	log.Println("Initialized load balancer")
+	address := "localhost:9090"
+	backendAddress := "localhost:8080"
+
+	// Start listening on the specified address
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Panic("Error creating TCP server:", err)
+	}
+	defer listener.Close()
+
+	fmt.Printf("Listening on address: %v, forwarding to backend: %v\n", address, backendAddress)
+
+	// Accept incoming connections
+	for {
+		clientConn, err := listener.Accept()
+		if err != nil {
+			log.Println("Error accepting connection:", err)
+			continue
+		}
+
+		// Handle the connection in a separate goroutine
+		go handleConnection(clientConn, backendAddress)
+	}
 }
